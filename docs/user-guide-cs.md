@@ -35,6 +35,26 @@ npm start
 
 `npm start` nic neinstaluje. Před startem ověří, že je dostupný požadovaný Node.js, že `python3` je alespoň 3.10 a že v něm jde načíst pandas. Při chybě vypíše konkrétní pokyn. Server používá právě výchozí `python3`; pokud potřebujete jiný interpreter, lze nastavit `DIVIDENDY_PYTHON` na jeho příkazovou cestu. V prohlížeči otevřete `http://127.0.0.1:3000`. Aplikace naslouchá jen na loopbacku; nepřesměrovávejte port na síť. Proces zastavíte `Ctrl+C`.
 
+## Získání výpisu od brokera
+
+Pro roční přehled vyberte období od 1. ledna do 31. prosince příslušného roku. Například pro rok 2025 nastavte začátek **1. 1. 2025** a konec **31. 12. 2025**.
+
+### Interactive Brokers (IBKR)
+
+1. Přihlaste se do **Client Portal**.
+2. Otevřete **Performance Reports → Statements → Activity Statement**.
+3. Nastavte celé požadované roční období.
+4. Klikněte na **Download CSV** a uložte soubor do počítače.
+
+### DEGIRO
+
+1. Přihlaste se do svého účtu.
+2. Otevřete **Inbox → Přehled účtu**.
+3. Nastavte období od začátku do konce požadovaného roku.
+4. Zvolte export **CSV** a stáhněte soubor.
+
+Uložený soubor před importem neotvírejte a znovu neukládejte v tabulkovém procesoru; mohl by změnit oddělovače nebo formát částek. Pak pokračujte výběrem brokera a souboru v aplikaci.
+
 ## Import
 
 Vyberte brokera a CSV. Aplikace přijímá pouze UTF-8 CSV do 5 MiB a parserem rozpoznané profily DEGIRO/IBKR. Náhled ukáže rozpoznané položky a diagnostiku. Po potvrzení zůstávají výsledky pouze v paměti do ukončení aplikace. Původní CSV se na disk neukládá. Obsahově shodný soubor stejného brokera se zablokuje jen v rámci aktuální relace.
