@@ -1,0 +1,17 @@
+{
+  "name": "dividendy-local-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lokální český přehled dividend z exportů DEGIRO a IBKR",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node app/server.js",
+    "test": "node --test app/tests/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "multer": "^2.0.2"
+  }
+}

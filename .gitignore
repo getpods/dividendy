@@ -1,0 +1,13 @@
+data/
+node_modules/
+.venv/
+__pycache__/
+*.py[cod]
+*.csv
+**/.DS_Store
+/2025/
+/Reporty.docx
+/app/tests/
+/tests/
+/docs/*
+!/docs/user-guide-cs.md
