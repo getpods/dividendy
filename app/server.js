@@ -85,7 +85,13 @@ function checkPost(req, res, next) {
 }
 function page(req, res, title, body) {
   const session = getSession(req, res);
-  res.type('html').send(`<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#102a24"><title>${escapeHtml(title)} – Dividendový přehled</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head><body><header class="site-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">D</span><span>Dividendový přehled<small>Soukromé finance, lokálně</small></span></a><nav aria-label="Hlavní navigace"><a href="/">Přehled</a><a href="/guide">Návod</a><a class="nav-export" href="/export.csv"><span aria-hidden="true">↓</span> Export CSV</a></nav></header><main><p class="eyebrow">LOKÁLNÍ PŘEHLED <span>·</span> DATA ZŮSTÁVAJÍ U VÁS</p><h1>${escapeHtml(title)}</h1>${body}</main><footer><span class="footer-dot" aria-hidden="true"></span> Lokální nástroj. Neprovádí český daňový výpočet ani neposuzuje započitatelnost zahraniční daně.</footer></body></html>`);
+  const exportParams = new URLSearchParams();
+  for (const key of ['year', 'broker', 'currency']) {
+    const value = typeof req.query[key] === 'string' ? req.query[key].trim() : '';
+    if (value) exportParams.set(key, value);
+  }
+  const exportSuffix = exportParams.toString() ? `?${exportParams}` : '';
+  res.type('html').send(`<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#102a24"><title>${escapeHtml(title)} – Dividendový přehled</title><link rel="stylesheet" href="/static/app.css"><script src="/static/app.js" defer></script></head><body><header class="site-header"><a class="brand" href="/"><span class="brand-mark" aria-hidden="true">D</span><span>Dividendový přehled<small>Soukromé finance, lokálně</small></span></a><nav aria-label="Hlavní navigace"><a href="/">Přehled</a><a href="/guide">Návod</a><a class="nav-export" href="/export.csv${exportSuffix}"><span aria-hidden="true">↓</span> CSV</a><a class="nav-export" href="/export.xlsx${exportSuffix}"><span aria-hidden="true">↓</span> Excel</a></nav></header><main><p class="eyebrow">LOKÁLNÍ PŘEHLED <span>·</span> DATA ZŮSTÁVAJÍ U VÁS</p><h1>${escapeHtml(title)}</h1>${body}</main><footer><span class="footer-dot" aria-hidden="true"></span> Lokální nástroj. Neprovádí český daňový výpočet ani neposuzuje započitatelnost zahraniční daně.</footer></body></html>`);
 }
 function renderError(message) { return `<p class="alert">${escapeHtml(message)}</p>`; }
 function isZeroDecimal(value) { return /^-?0+(?:\.0*)?$/.test(String(value)); }
@@ -522,22 +528,67 @@ app.post('/imports/:id/delete', checkPost, (req, res) => {
   res.redirect('/?deleted=1');
 });
 
-app.get('/export.csv', (req, res) => {
-  const rows = displayTransactions(selectedRows(req.query));
-  const header = ['datum','broker','měna','hrubá_dividenda','daň_z_dividendy','daň_z_dividendy_původní_znaménko','neověřený_daňový_pohyb','čistá_dividenda','popis','ISIN','typ_cenného_papíru','domicil_emitenta','domicil_emitenta_kód','původ_domicilu','zdroj_pravidla_domicilu','stav_kontroly','poznámka_seskupení','zdrojový_soubor','zdrojové_řádky'];
-  const lines = [header.map(csvCell).join(';'), ...rows.map(row => {
+const EXPORT_HEADER = ['datum','broker','měna','hrubá_dividenda','daň_z_dividendy','daň_z_dividendy_původní_znaménko','neověřený_daňový_pohyb','čistá_dividenda','popis','ISIN','typ_cenného_papíru','domicil_emitenta','domicil_emitenta_kód','původ_domicilu','zdroj_pravidla_domicilu','stav_kontroly','poznámka_seskupení','zdrojový_soubor','zdrojové_řádky'];
+function exportValues(rows) {
+  return rows.map(row => {
     const source = JSON.parse(row.source_records_json);
     const domicile = instrumentDomiciles.get(row.instrument_key);
     const securityType = instrumentTypes.get(row.instrument_key) || 'ordinary_share';
     const groupingNote = row.display_candidate ? 'Kandidátní seskupení; párování není potvrzeno' : '';
     const sourceRowsText = String(row.source_rows || '').split(',').map(value => value.trim()).filter(Boolean).join(' + ');
     const domicileOrigin = domicile?.source === 'isin_prefix_iso6166' ? 'prefix ISIN; běžná akcie potvrzena uživatelem' : domicile ? 'ručně potvrzeno uživatelem' : '';
-    return [row.event_date,row.broker,row.currency,row.gross_dividend,row.withholding_tax,row.withholding_tax_signed,row.tax_adjustment_amount,row.net_dividend,row.symbol_or_product,row.isin,INSTRUMENT_TYPES[securityType] || INSTRUMENT_TYPES.other,domicile?.country_name || '',domicile?.country_code || '',domicileOrigin,domicile?.source_reference || '',row.review_status,groupingNote,source[0]?.source_file || '',sourceRowsText].map(csvCell).join(';');
-  })];
+    return [row.event_date,row.broker,row.currency,row.gross_dividend,row.withholding_tax,row.withholding_tax_signed,row.tax_adjustment_amount,row.net_dividend,row.symbol_or_product,row.isin,INSTRUMENT_TYPES[securityType] || INSTRUMENT_TYPES.other,domicile?.country_name || '',domicile?.country_code || '',domicileOrigin,domicile?.source_reference || '',row.review_status,groupingNote,source[0]?.source_file || '',sourceRowsText];
+  });
+}
+function selectedExportRows(req) {
+  return displayTransactions(selectedRows(req.query));
+}
+app.get('/export.csv', (req, res) => {
+  const rows = exportValues(selectedExportRows(req));
+  const lines = [EXPORT_HEADER.map(csvCell).join(';'), ...rows.map(row => row.map(csvCell).join(';'))];
   res.set('Content-Disposition', 'attachment; filename="dividendy.csv"').type('text/csv; charset=utf-8').send('\ufeff' + lines.join('\r\n'));
 });
+app.get('/export.xlsx', (req, res) => {
+  const rows = exportValues(selectedExportRows(req));
+  const python = process.env.DIVIDENDY_PYTHON || 'python3';
+  const child = spawn(python, [path.join(ROOT, 'python', 'xlsx_export.py')], {
+    cwd: ROOT, shell: false, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' },
+  });
+  const chunks = [];
+  let outputSize = 0;
+  let failed = false;
+  let timer;
+  const failExport = (message = 'Export XLSX se nepodařilo vytvořit.') => {
+    if (failed || res.headersSent) return;
+    failed = true;
+    clearTimeout(timer);
+    child.kill('SIGKILL');
+    res.status(500).send(message);
+  };
+  timer = setTimeout(() => failExport(), 15000);
+  child.stdout.on('data', chunk => {
+    outputSize += chunk.length;
+    if (outputSize > 32 * 1024 * 1024) return failExport();
+    chunks.push(chunk);
+  });
+  child.stderr.on('data', () => {});
+  child.stdin.on('error', () => failExport());
+  child.on('error', () => {
+    failExport('Export XLSX se nepodařilo vytvořit. Ověřte instalaci Pythonu.');
+  });
+  child.on('close', code => {
+    clearTimeout(timer);
+    if (failed || res.headersSent) return;
+    if (code !== 0) return failExport();
+    res.set('Content-Disposition', 'attachment; filename="dividendy.xlsx"')
+      .type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      .send(Buffer.concat(chunks));
+  });
+  child.stdin.end(JSON.stringify({ header: EXPORT_HEADER, rows, numeric_columns: [3,4,5,6,7] }));
+});
 
-app.get('/guide', (req, res) => page(req, res, 'Návod', `<h2>Požadavky a spuštění</h2><p>Potřebujete Node.js 20+ s npm a Python 3.10+ s pandas v příkazu <code>python3</code>. Pythonová část má jedinou přímou závislost: pandas. Na Debianu lze pandas nainstalovat příkazem <code>sudo apt install python3 python3-pandas</code>; Node balíčky nainstalujte v kořeni projektu příkazem <code>npm ci</code>. Návod pro čistou instalaci je v souboru <code>docs/user-guide-cs.md</code>. Příkaz <code>npm start</code> závislosti sám neinstaluje a při startu ověří jejich dostupnost. Po startu otevřete <code>http://127.0.0.1:3000</code>. Server naslouchá pouze na loopback rozhraní. Zastavíte jej <code>Ctrl+C</code>.</p><h2>Import</h2><p>Vyberte CSV export DEGIRO nebo IBKR a zkontrolujte náhled. Potvrzené importy i výsledky zůstávají pouze v paměti do ukončení aplikace. Původní CSV se neukládá. Po restartu aplikace začíná prázdná relace; exportujte si výsledky před ukončením.</p><h2>Domicil emitenta</h2><p>Na hlavní stránce výchozí typ „Běžná akcie“ používá automatický návrh z platného prefixu ISINu; pole země je uzamčené. ETF / fond a „Jiný typ“ mají ruční kód země. Změny všech titulů potvrdíte jedním tlačítkem a při neplatném kódu se neuloží žádná z nich. U ADR/GDR a dluhopisů prefix ISINu nelze bezpečně použít jako domicil podkladové firmy. Domicil emitenta není země zdroje dividendy. Nastavení je pouze v paměti a po restartu se smaže.</p><h2>Částky a daně</h2><p>Aplikace zobrazuje částky vykázané parserem. Kladná položka sekce IBKR Withholding Tax se zobrazuje jako neověřený daňový pohyb; není potvrzené, zda jde o vratku nebo opravu, a do čisté dividendy se nezapočítává. Nejde o výpočet české daňové povinnosti ani potvrzení zápočtu.</p><h2>Soukromí</h2><p>CSV se zpracovává z paměti požadavku a Pythonu se předává přes standardní vstup. Aplikace nevytváří databázi, uložené importy ani zálohy. Výpisy neopouštějí tento počítač.</p>`));
+app.get('/guide', (req, res) => page(req, res, 'Návod', `<h2>Požadavky a spuštění</h2><p>Potřebujete Node.js 20+ s npm a Python 3.10+ s pandas v příkazu <code>python3</code>. Pythonová část má jedinou přímou závislost: pandas. Na Debianu lze pandas nainstalovat příkazem <code>sudo apt install python3 python3-pandas</code>; Node balíčky nainstalujte v kořeni projektu příkazem <code>npm ci</code>. Návod pro čistou instalaci je v souboru <code>docs/user-guide-cs.md</code>. Příkaz <code>npm start</code> závislosti sám neinstaluje a při startu ověří jejich dostupnost. Po startu otevřete <code>http://127.0.0.1:3000</code>. Server naslouchá pouze na loopback rozhraní. Zastavíte jej <code>Ctrl+C</code>.</p><h2>Import</h2><p>Vyberte CSV export DEGIRO nebo IBKR a zkontrolujte náhled. Potvrzené importy i výsledky zůstávají pouze v paměti do ukončení aplikace. Původní CSV se neukládá. Po restartu aplikace začíná prázdná relace; exportujte si výsledky před ukončením.</p><h2>Export</h2><p>CSV exportuje aktuálně zobrazené položky s desetinnou tečkou a středníkem jako oddělovačem. Pokud je tabulkový procesor kvůli jazykovému nastavení zobrazí jako text, použijte Excel export; částky jsou v něm číselné buňky. Oba exporty zachovávají aktuální filtry.</p><h2>Domicil emitenta</h2><p>Na hlavní stránce výchozí typ „Běžná akcie“ používá automatický návrh z platného prefixu ISINu; pole země je uzamčené. ETF / fond a „Jiný typ“ mají ruční kód země. Změny všech titulů potvrdíte jedním tlačítkem a při neplatném kódu se neuloží žádná z nich. U ADR/GDR a dluhopisů prefix ISINu nelze bezpečně použít jako domicil podkladové firmy. Domicil emitenta není země zdroje dividendy. Nastavení je pouze v paměti a po restartu se smaže.</p><h2>Částky a daně</h2><p>Aplikace zobrazuje částky vykázané parserem. Kladná položka sekce IBKR Withholding Tax se zobrazuje jako neověřený daňový pohyb; není potvrzené, zda jde o vratku nebo opravu, a do čisté dividendy se nezapočítává. Nejde o výpočet české daňové povinnosti ani potvrzení zápočtu.</p><h2>Soukromí</h2><p>CSV se zpracovává z paměti požadavku a Pythonu se předává přes standardní vstup. Aplikace nevytváří databázi, uložené importy ani zálohy. Výpisy neopouštějí tento počítač.</p>`));
 
 app.use((error, req, res, next) => {
   // Deliberately do not log request data, parser output, or error messages.
